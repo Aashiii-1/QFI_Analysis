@@ -109,7 +109,7 @@ Reference paper : https://www.grc.nasa.gov/www/k-12/Numbers/Math/documents/Tenso
 - Solution of TDSE in MPO form is:
     - U(T) = Σ T...|s> <s'|
 
-## <span style="color:gold"> Actual Project
+## <span style="color:gold"> **Actual Project**
 
 ### Summary
 - Use MPS to approximate the TFIM
@@ -120,7 +120,7 @@ Reference paper : https://www.grc.nasa.gov/www/k-12/Numbers/Math/documents/Tenso
     - Lᵢ are a set of jump operators which descibe the dissipative part of the dynamics
     - Γ are the damping rates
     - Work in Liouville space, where you use a Lindbladian superoperator
-    -<span style="color:turquoise"> not sure what jump operators i am using
+  
 ### Step-by-step functions
     - To generate pauli matrices
     - To make operators act on locally in the chain
@@ -132,11 +132,28 @@ Reference paper : https://www.grc.nasa.gov/www/k-12/Numbers/Math/documents/Tenso
     - Lindblad Master Equation
     - Calculate QFI of states 
     - Time evolutioon using Linblad, make sure density matrix is vectorised
-    
-    - Generating MPS, this will help compress the structure and can be used to generalise for larger systems
-    - Where does optimisation fit in all this? hmm
+    ----------------------------------------> done!
 
-### Functions
+    - Generating MPS, this will help compress the structure and can be used to generalise for larger systems
+    - TEBD?
+    - Optimisation??
+
+### Structure of spatially corelated noise
+- Affects qubits diffrently based on their position
+- Usually modelled using a spatial correlation function, if i and j are close then the noise they experience would be similar as well
+- This coorelated function is calculated using different approaches like using FFT
+- Which essentially states that the field at point i is affected by small fluctations at that site. a is the strength of these fluctuations.
+- <span style="color:pink"> I am not sure if this is the right formalism. I couldn't find a concrete example on this, so I used Gaussian where C(r) = p*exp(-r/l). This corelation function is then decomposed into lower triangle matrices so that they can be multiplied with pauli matrices
+
+
+### Structure of Jump Operators and Lindblad ME
+- Paper: Open quantum systems — A brief introduction” (Cahiers de l'Institut Pascal, 2026).
+- I used the exact operators they've talked about
+- V = √γ * Γ
+
+### Optimisation problem
+
+
 
 
 
