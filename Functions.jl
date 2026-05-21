@@ -165,49 +165,55 @@ main()
 
 
 #Optimising the chain using QFI
-function calculate_qfi(ρ, A)
-    E = eigen(Hermitian(ρ))
-    p = E.values
+function calculate_qfi_J(ρ_plus_tiny_bit, ρ_minus_tiny_bit, ε)
+    dρ = (ρ_plus_tiny_bit - ρ_minus_tiny_bit) / (2ε)
+    E = eigen(Hermitian((ρ_plus_tiny_bit + ρ_minus_tiny_bit) / 2))
+    λ = E.values
     states = E.vectors
-    
-    dim = length(p)
+    numerator = adjoint(states) * dρ * states
+    dim = length(λ)
     qfi = 0.0
     
-    A_basis = adjoint(states) *A * states
-    for m in 1:dim
-        for n in 1:dim
-            if p[m] + p[n] > 0
-                numerator = (p[m] - p[n])^2
-                denominator = p[m] + p[n]
-                qfi += 2.0 * (numerator / denominator) * abs(A_basis[m, n])^2
+    for i in 1:dim
+        for j in 1:dim
+            if λ[i] + λ[j] > 0
+                qfi += 2.0 * abs(numerator[i,j])^2 / (λ[i] + λ[j])
             end
         end
     end
     return qfi
 end
 
+
 function opt_prob(J_val)
     N = 3
     p = 0.8
     l = 1
     Γ₀ = 0.5
-    Γ = fill(1.0, N)
-    γ = fill(0.1, N) 
+    γ = fill(0.1, N)
     tf = 5.0
     τ = 0.1
-    
+    ε = 1e-5
     Γ = spatial_noise(N, Γ₀, p, l)
-    X, Z, Id = pauli_matrices()
-    A = sum([local_operator(Z, i, N) for i in 1:N])
-    
-
     ρ0 = zeros(ComplexF64, 2^N, 2^N)
-    ρ0[2^N, 2^N] = 1.0  
-    
-    t_list, ρ_list = run_dynamics(N, J_val, Γ, γ, ρ0, tf, τ)
-    qfi_trajectory = [calculate_qfi(ρ, A) for ρ in ρ_list]
+    ρ0[2^N, 2^N] = 1.0
+    qfi_trajectory = Float64[]
 
-    return maximum(qfi_trajectory)
+    for k in 1:N-1
+        J_plus = copy(J_val)
+        J_minus = copy(J_val)
+        J_plus[k] += ε
+        J_minus[k] -= ε
+
+        _, ρ_list_plus  = run_dynamics(N, J_plus,  Γ, γ, ρ0, tf, τ)
+        _, ρ_list_minus = run_dynamics(N, J_minus, Γ, γ, ρ0, tf, τ)
+
+        qfi_k = [calculate_qfi_J(ρ_list_plus[t], ρ_list_minus[t], ε) 
+                 for t in 1:length(ρ_list_plus)]
+        push!(qfi_trajectory, maximum(qfi_k))
+    end
+
+    return sum(qfi_trajectory)
 end
 
 #optimisation problem
