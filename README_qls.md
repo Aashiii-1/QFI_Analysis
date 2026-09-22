@@ -31,6 +31,7 @@ differs from the explicit minus signs in the Julia `TFIM`.
 ```
 requirements.txt      jax, jaxlib, equinox, optax, numpy, pytest
 run_qls.sh            two-stage driver (generate data, then train)
+submit_qls.sbatch     Slurm batch job for CU Boulder Research Computing
 src/ising.py          Pauli operators, eq (1) Hamiltonian, eq (2)-(3) readout
 src/sampling.py       correlated Ξ, Λ and the eq (7) signal ensemble
 src/generate_data.py  exact diagonalization sweep -> data/qls_N{N}.txt
@@ -53,6 +54,94 @@ Overridable environment variables: `N`, `N_N`, `N_B`, `BETA`, `SIGMA1`, `SIGMA2`
 `ELL`, `M_MODES`, `AMP_STD`, `J0`, `B0`, `EPOCHS`, `BATCH_SIZE`, `LR_THETA`,
 `LR_PHI`, `WIDTH`, `DEPTH`, `READOUT`, `VAL_FRAC`, `LOG_EVERY`, `SEED`,
 `DATA_DIR`, `RESULTS_DIR`, `PYTHON`.
+
+Note that `run_qls.sh` takes **no command-line flags**. Anything you pass on the
+command line is ignored, so configure it through the environment.
+
+## Running on CU Boulder Research Computing (Slurm)
+
+`submit_qls.sbatch` runs the pipeline as a batch job. Build the virtualenv once
+on a **login node** — compute nodes generally have no outbound network, so the
+job will not pip install for you — and then submit:
+
+```bash
+module load anaconda                  # check `module avail python` for the real name
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python -m pytest tests      # confirm the analytic checks pass
+
+mkdir -p logs                         # Slurm will not create the output dir
+sbatch submit_qls.sbatch
+```
+
+Defaults are `N=8`, `EPOCHS=1000`, writing to `data/n8_run/` and
+`results/n8_run/`, with `logs/qls_n8_<jobid>.{out,err}`. Override at submit time
+without editing the script:
+
+```bash
+sbatch --export=ALL,N=6,EPOCHS=300,BATCH_SIZE=32 submit_qls.sbatch
+sbatch --export=ALL,VENV=/projects/$USER/qls-venv submit_qls.sbatch
+```
+
+The script requests `--partition=acpu --qos=cpu-normal`, 8 CPUs, 32 GB and 24
+hours. **Verify the partition and QoS against your own allocation** before the
+first real run — `sinfo -s` lists reachable partitions, `sacctmgr show qos` and
+`sacctmgr show assoc user=$USER` list the QoS names and limits you are entitled
+to. It also caps `OMP_NUM_THREADS`, `MKL_NUM_THREADS` and `OPENBLAS_NUM_THREADS`
+at `$SLURM_CPUS_PER_TASK` so the BLAS backend does not oversubscribe the cores
+Slurm granted, and pins `JAX_PLATFORMS=cpu` so JAX does not probe for a GPU on a
+CPU partition. The `.out` file opens with the fully resolved configuration
+(host, `nproc`, thread limit, every pipeline parameter) and closes with the
+total wall time, including on failure.
+
+### Memory scaling: why N=8 fits and N=12 does not
+
+Cost is set by the Hilbert space dimension `2^N`. Exact diagonalization
+materializes dense `2^N × 2^N` complex128 matrices (16 bytes per element), and
+`_readout_eigh` additionally gathers `N` bit-flip-permuted copies of the
+eigenvector matrix so that all `⟨n|X_j|n⟩` can be evaluated in one einsum. Both
+stages are vmapped, so the live footprint is roughly
+
+```
+bytes  ≈  16  ·  (N + 2)  ·  4^N  ·  records_in_flight
+          ^^      ^^^^^      ^^^     ^^^^^^^^^^^^^^^^^
+     complex128   H, V, and        N_B·N_n when generating,
+                  N copies of V    BATCH_SIZE when training
+```
+
+and reverse-mode autodiff keeps residuals alive across the backward pass, adding
+a further factor of roughly two to three during training.
+
+The `records_in_flight` term matters more than it looks: **data generation is
+the memory peak, not training**, because `generate_data.py` vmaps over the
+entire `N_B × N_n` dataset in one call while training only ever holds
+`BATCH_SIZE` records.
+
+| N | `2^N` | one eigenvector matrix | batch of 64, eigenvectors only | training, batch 64 | generation, 512 records |
+| --- | --- | --- | --- | --- | --- |
+| 6 | 64 | 64 KB | 4 MB | 32 MB | 256 MB |
+| 8 | 256 | 1 MB | 64 MB | 640 MB | 5 GB |
+| 10 | 1024 | 16 MB | 1 GB | 12 GB | 96 GB |
+| 12 | 4096 | 256 MB | 16 GB | 224 GB | 1.8 TB |
+| 14 | 16384 | 4 GB | 256 GB | 4 TB | 32 TB |
+
+**N=8 fits** in the requested 32 GB. Measured peak RSS for a full
+`N=8, N_B=64, N_n=8, BATCH_SIZE=64` run is **5.3 GB**, against 5.0 GB predicted
+for the generation stage — close enough to trust the formula for sizing other
+jobs.
+
+**N=12 will not fit.** The eigenvector matrices alone are 16 GB for a batch of
+64 before any autodiff residuals, the full training footprint is over 200 GB,
+and generating the dataset at the default 512 records would need terabytes.
+Raising `--mem` cannot rescue this; the exponent wins. Past N≈10 the approach
+itself has to change — project onto the low-lying spectrum with a Krylov/Lanczos
+solver instead of full ED, or move to the MPS/TEBD route already sketched in the
+main [README](README.md).
+
+**N=10 is the awkward middle.** Training at `BATCH_SIZE=16` needs about 3 GB and
+is fine, but generation at 512 records wants 96 GB and will be killed. Until
+`generate_data.py` chunks its vmap, get there by shrinking the dataset
+(`N_B=16 N_N=4` → 64 records ≈ 12 GB) rather than by asking for more memory.
 
 ## Implementation notes
 
