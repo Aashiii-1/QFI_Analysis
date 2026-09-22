@@ -1,0 +1,8 @@
+# Python toolchain for the JAX quantum-sensing pipeline (src/, tests/).
+# The Julia code (Functions.jl, tests.jl) is unaffected by these.
+jax>=0.4.30
+jaxlib>=0.4.30
+equinox>=0.11.4
+optax>=0.2.2
+numpy>=1.26
+pytest>=8.0
