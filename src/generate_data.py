@@ -27,9 +27,6 @@ import numpy as np
 import sampling
 from ising import readout
 
-COLUMN_KEYS = ("signal_id", "noise_id", "J", "B", "dB", "S", "xi", "lam")
-
-
 def column_layout(N: int) -> list[tuple[str, int]]:
     """``(name, width)`` pairs describing one dataset row."""
     return [
@@ -72,7 +69,7 @@ def generate(args) -> tuple[np.ndarray, dict]:
     # One independent (Xi, Lambda) draw per (signal, noise) pair, so the batch
     # is an unbiased Monte-Carlo sample of the joint expectation in eq (5).
     n_records = n_signals * n_noise
-    xi, lam = sample_noise_batch(k_noise, n_records, N, args)
+    xi, lam = sampling.sample_noise(k_noise, n_records, N, args.sigma1, args.sigma2, args.ell)
 
     signal_id = np.repeat(np.arange(n_signals), n_noise)
     noise_id = np.tile(np.arange(n_noise), n_signals)
@@ -115,10 +112,6 @@ def generate(args) -> tuple[np.ndarray, dict]:
         "B0": " ".join(f"{v:.10e}" for v in np.asarray(B0)),
     }
     return rows, meta
-
-
-def sample_noise_batch(key, n_records: int, N: int, args):
-    return sampling.sample_noise(key, n_records, N, args.sigma1, args.sigma2, args.ell)
 
 
 def write_dataset(path: str, rows: np.ndarray, meta: dict) -> None:
